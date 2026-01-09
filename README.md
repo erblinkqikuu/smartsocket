@@ -431,6 +431,7 @@ socket.on('auth', (credentials, ack) => {
 ## Related Resources
 
 - **Client Library**: [smartsocket-client](../smartsocket-client/)
+- **Documentation Hub**: [smartsocket-docs](../smartsocket-docs/)
 - **Main Docs**: [../README.md](../README.md)
 - **Deployment Guide**: [../DEPLOYMENT.md](../DEPLOYMENT.md)
 - **Advanced Features**: [../SMARTSOCKET_FEATURES.md](../SMARTSOCKET_FEATURES.md)
