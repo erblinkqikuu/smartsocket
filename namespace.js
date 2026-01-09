@@ -69,14 +69,44 @@ export class Namespace {
 
   /**
    * Emit to specific room within namespace
+   * Fixed: Now includes proper error handling and logging
    */
   to(room) {
+    const roomSockets = this.rooms.get(room);
+    
+    // Handle missing room gracefully
+    if (!roomSockets || roomSockets.size === 0) {
+      console.warn(`[Namespace] Room [${room}] not found or empty in namespace [${this.name}]`);
+      return {
+        emit: () => {} // No-op if room doesn't exist
+      };
+    }
+
     return {
       emit: (event, data) => {
-        if (this.rooms.has(room)) {
-          this.rooms.get(room).forEach(socket => {
+        // Broadcast to all sockets in the room
+        let successCount = 0;
+        let errorCount = 0;
+        
+        roomSockets.forEach(socket => {
+          try {
             socket.emit(event, data);
-          });
+            successCount++;
+          } catch (err) {
+            console.error(`[Namespace] Error emitting '${event}' to socket in room [${room}]:`, err.message);
+            errorCount++;
+          }
+        });
+        
+        // Log broadcast result
+        if (successCount > 0) {
+          console.log(`[BROADCAST] Event: ${event}`);
+          console.log(`  ├─ Namespace: ${this.name} | Room: ${room}`);
+          console.log(`  ├─ Sent to: ${successCount} client(s)`);
+          if (errorCount > 0) {
+            console.log(`  ├─ Failed: ${errorCount} client(s)`);
+          }
+          console.log(`  └─ Status: ✅ Broadcasted\n`);
         }
       }
     };
