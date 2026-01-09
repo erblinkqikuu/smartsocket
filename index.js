@@ -1433,13 +1433,38 @@ class SmartSocketServer {
         maxPayloadLength: 16 * 1024 * 1024,
         idleTimeout: 120,
         
-        open: (ws) => {
+        open: (ws, req) => {
           const socket = new SmartSocket(ws, this);
           this.sockets.add(socket);
+          
+          // Extract namespace path from URL
+          const url = req.getUrl();
+          let namespacePath = '/';
+          if (url && url !== '/') {
+            namespacePath = url.split('?')[0]; // Remove query params
+          }
+          
           console.log(`\n[CONNECTION] ✅ New client connected`);
           console.log(`  └─ Socket ID: ${socket.id}`);
+          console.log(`  └─ Namespace Path: ${namespacePath}`);
           console.log(`  └─ Total Connections: ${this.sockets.size}`);
           console.log(`  └─ Timestamp: ${new Date().toISOString()}\n`);
+          
+          // Assign socket to namespace if it exists
+          if (namespacePath !== '/' && this.namespaceManager) {
+            const namespace = this.namespaceManager.namespaces.get(namespacePath);
+            if (namespace) {
+              namespace.addSocket(socket);
+              socket.namespace = namespacePath;
+              console.log(`[NAMESPACE] ✅ Socket assigned to namespace [${namespacePath}]`);
+              
+              // Fire namespace-specific connection handler if registered
+              if (namespace.handlers['connection']) {
+                namespace.handlers['connection'](socket);
+              }
+            }
+          }
+          
           this._logVibe(`✅ New connection: ${socket.id} (Total: ${this.sockets.size})`);
           this._handleConnection(ws, socket);
         },
@@ -1503,6 +1528,17 @@ class SmartSocketServer {
                 }
               }
 
+              // Check namespace handlers FIRST (highest priority for organized routing)
+              if (socket.namespace) {
+                const namespace = this.namespaceManager.namespaces.get(socket.namespace);
+                if (namespace && namespace.handlers[event]) {
+                  console.log(`[ROUTER] Event '${event}' routed to namespace [${socket.namespace}]`);
+                  namespace.handlers[event](socket, data);
+                  return;
+                }
+              }
+
+              // Then check socket-specific handlers
               if (socket.handlers[event]) {
                 socket.handlers[event](data);
               } else if (this.handlers[event]) {
@@ -1521,6 +1557,7 @@ class SmartSocketServer {
           if (socket) {
             console.log(`\n[DISCONNECT] ❌ Client disconnected`);
             console.log(`  └─ Socket ID: ${socket.id}`);
+            console.log(`  └─ Namespace: ${socket.namespace || 'default'}`);
             console.log(`  └─ Rooms: ${Array.from(socket.rooms).join(', ') || 'none'}`);
             console.log(`  └─ Duration: ${Date.now() - socket.createdAt}ms`);
             console.log(`  └─ Code: ${code}`);
@@ -1529,6 +1566,20 @@ class SmartSocketServer {
             
             // Clear encryption key for this connection (DISABLED)
             // encryptionManager.clearSessionKey(socket.id);
+            
+            // Remove from namespace if assigned
+            if (socket.namespace && this.namespaceManager) {
+              const namespace = this.namespaceManager.namespaces.get(socket.namespace);
+              if (namespace) {
+                namespace.removeSocket(socket);
+                console.log(`[NAMESPACE] Socket removed from namespace [${socket.namespace}]`);
+                
+                // Fire namespace-specific disconnect handler if registered
+                if (namespace.handlers['disconnect']) {
+                  namespace.handlers['disconnect'](socket);
+                }
+              }
+            }
             
             this.sockets.delete(socket);
             socket.rooms.forEach(room => {
