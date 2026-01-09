@@ -1,0 +1,63 @@
+{
+  "name": "smartsocket",
+  "version": "1.0.0",
+  "description": "Production WebSocket server with DEFLATE compression, auto-reconnect, room broadcasting, and real-time metrics. 20-30x faster than Socket.IO.",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "author": "Erblin Kqiku",
+  "license": "MIT",
+  "keywords": [
+    "websocket",
+    "realtime",
+    "socket",
+    "uwebsockets",
+    "high-performance",
+    "game-server",
+    "quiz",
+    "kahoot",
+    "networking",
+    "optimization",
+    "performance",
+    "streaming",
+    "multiplexing",
+    "rate-limiting"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "middleware.js",
+    "namespace.js",
+    "acknowledgment.js",
+    "error-handler.js",
+    "encryption.js",
+    "object-pool.js",
+    "message-cache.js",
+    "rate-limiter.js",
+    "predictive-compressor.js",
+    "connection-pool.js",
+    "connection-multiplexer.js",
+    "BinaryEncoder.js",
+    "README.md",
+    "LICENSE",
+    ".npmignore"
+  ],
+  "dependencies": {
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.44.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node verify-build.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/erblinkqikuu/smartsocket"
+  },
+  "bugs": {
+    "url": "https://github.com/erblinkqikuu/smartsocket/issues"
+  },
+  "homepage": "https://github.com/erblinkqiku/smartsocket#readme"
+}
