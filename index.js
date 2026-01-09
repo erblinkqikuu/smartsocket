@@ -1433,37 +1433,14 @@ class SmartSocketServer {
         maxPayloadLength: 16 * 1024 * 1024,
         idleTimeout: 120,
         
-        open: (ws, req) => {
+        open: (ws) => {
           const socket = new SmartSocket(ws, this);
           this.sockets.add(socket);
           
-          // Extract namespace path from URL
-          const url = req.getUrl();
-          let namespacePath = '/';
-          if (url && url !== '/') {
-            namespacePath = url.split('?')[0]; // Remove query params
-          }
-          
           console.log(`\n[CONNECTION] ✅ New client connected`);
           console.log(`  └─ Socket ID: ${socket.id}`);
-          console.log(`  └─ Namespace Path: ${namespacePath}`);
           console.log(`  └─ Total Connections: ${this.sockets.size}`);
           console.log(`  └─ Timestamp: ${new Date().toISOString()}\n`);
-          
-          // Assign socket to namespace if it exists
-          if (namespacePath !== '/' && this.namespaceManager) {
-            const namespace = this.namespaceManager.namespaces.get(namespacePath);
-            if (namespace) {
-              namespace.addSocket(socket);
-              socket.namespace = namespacePath;
-              console.log(`[NAMESPACE] ✅ Socket assigned to namespace [${namespacePath}]`);
-              
-              // Fire namespace-specific connection handler if registered
-              if (namespace.handlers['connection']) {
-                namespace.handlers['connection'](socket);
-              }
-            }
-          }
           
           this._logVibe(`✅ New connection: ${socket.id} (Total: ${this.sockets.size})`);
           this._handleConnection(ws, socket);
@@ -1525,6 +1502,21 @@ class SmartSocketServer {
                   this.stats.cachedLookups++;
                   socket.emit('state:cached', cached);
                   return;
+                }
+              }
+
+              // Auto-assign socket to namespace on first quiz-related event
+              if (!socket.namespace && data && data.quizCode && this.namespaceManager) {
+                const quizNamespace = this.namespaceManager.namespaces.get('/quiz');
+                if (quizNamespace) {
+                  quizNamespace.addSocket(socket);
+                  socket.namespace = '/quiz';
+                  console.log(`[NAMESPACE] ✅ Socket auto-assigned to namespace [/quiz] (first event: ${event})`);
+                  
+                  // Fire namespace-specific connection handler if registered
+                  if (quizNamespace.handlers['connection']) {
+                    quizNamespace.handlers['connection'](socket);
+                  }
                 }
               }
 
