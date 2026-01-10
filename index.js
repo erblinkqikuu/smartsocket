@@ -1502,6 +1502,7 @@ class SmartSocketServer {
   }
 
   listen(callback) {
+    const server = this;
     this.app = uWS.App({})
       .ws('/*', {
         compression: uWS.SHARED_COMPRESSOR,
@@ -1509,18 +1510,18 @@ class SmartSocketServer {
         idleTimeout: 120,
         
         open: (ws) => {
-          const socket = new SmartSocket(ws, this);
-          this.sockets.add(socket);
+          const socket = new SmartSocket(ws, server);
+          server.sockets.add(socket);
           console.log(`\n[CONNECTION] ✅ New client connected`);
           console.log(`  └─ Socket ID: ${socket.id}`);
-          console.log(`  └─ Total Connections: ${this.sockets.size}`);
+          console.log(`  └─ Total Connections: ${server.sockets.size}`);
           console.log(`  └─ Timestamp: ${new Date().toISOString()}\n`);
-          this._logVibe(`✅ New connection: ${socket.id} (Total: ${this.sockets.size})`);
-          this._handleConnection(ws, socket);
+          server._logVibe(`✅ New connection: ${socket.id} (Total: ${server.sockets.size})`);
+          server._handleConnection(ws, socket);
         },
         
         message: (ws, message, isBinary) => {
-          const socket = Array.from(this.sockets).find(s => s.ws === ws);
+          const socket = Array.from(server.sockets).find(s => s.ws === ws);
           if (socket) {
             try {
               console.log(`\n[MESSAGE] 📨 Received from ${socket.id}`);
@@ -1528,13 +1529,13 @@ class SmartSocketServer {
               console.log(`  └─ Size: ${message.length} bytes`);
               
               // Check rate limit first
-              if (!this.rateLimiter.isAllowed(socket.id)) {
-                this.stats.rateLimitedRequests++;
+              if (!server.rateLimiter.isAllowed(socket.id)) {
+                server.stats.rateLimitedRequests++;
                 console.log(`  └─ ⚠️  Rate limited!\n`);
                 return;
               }
               
-              this.stats.messagesProcessed++;
+              server.stats.messagesProcessed++;
               
               // Decrypt message if encryption is enabled (DISABLED)
               let decrypted = message;
@@ -1612,10 +1613,10 @@ class SmartSocketServer {
 
                 // Call appropriate handler
                 let handlerResult = null;
-                if (socket.handlers[event]) {
+                if (socket.handlers && socket.handlers[event]) {
                   handlerResult = socket.handlers[event](data);
-                } else if (this.handlers[event]) {
-                  handlerResult = this.handlers[event](socket, data);
+                } else if (server.handlers && server.handlers[event]) {
+                  handlerResult = server.handlers[event](socket, data);
                 }
 
                 // Handle acknowledgment
@@ -1643,48 +1644,48 @@ class SmartSocketServer {
                   }
                 }
                 
-                this.stats.messagesOptimized++;
+                server.stats.messagesOptimized++;
               }).catch(err => {
                 console.error(`[SmartSocket] Middleware execution error: ${err.message}`);
-                this._handleError('middleware-error', socket, { error: err.message, event });
+                server._handleError('middleware-error', socket, { error: err.message, event });
               });
             } catch (err) {
-              this._logVibe(`❌ Error parsing message: ${err.message}`);
-              this._handleError('message-error', socket, { error: err.message });
+              server._logVibe(`❌ Error parsing message: ${err.message}`);
+              server._handleError('message-error', socket, { error: err.message });
             }
           }
         },
         
         close: (ws, code, message) => {
-          const socket = Array.from(this.sockets).find(s => s.ws === ws);
+          const socket = Array.from(server.sockets).find(s => s.ws === ws);
           if (socket) {
             console.log(`\n[DISCONNECT] ❌ Client disconnected`);
             console.log(`  └─ Socket ID: ${socket.id}`);
             console.log(`  └─ Rooms: ${Array.from(socket.rooms).join(', ') || 'none'}`);
             console.log(`  └─ Duration: ${Date.now() - socket.createdAt}ms`);
             console.log(`  └─ Code: ${code}`);
-            console.log(`  └─ Remaining Connections: ${this.sockets.size - 1}`);
+            console.log(`  └─ Remaining Connections: ${server.sockets.size - 1}`);
             console.log(`  └─ Timestamp: ${new Date().toISOString()}\n`);
             
             // Clear encryption key for this connection (DISABLED)
             // encryptionManager.clearSessionKey(socket.id);
             
-            this.sockets.delete(socket);
+            server.sockets.delete(socket);
             socket.rooms.forEach(room => {
-              const roomSockets = this.rooms.get(room);
+              const roomSockets = server.rooms.get(room);
               if (roomSockets) {
                 roomSockets.delete(socket);
                 if (roomSockets.size === 0) {
-                  this.rooms.delete(room);
+                  server.rooms.delete(room);
                 }
               }
             });
             
-            if (this.handlers['disconnect']) {
-              this.handlers['disconnect'](socket);
+            if (server.handlers['disconnect']) {
+              server.handlers['disconnect'](socket);
             }
             
-            this._logVibe(`❌ Disconnected: ${socket.id} (Total: ${this.sockets.size})`);
+            server._logVibe(`❌ Disconnected: ${socket.id} (Total: ${server.sockets.size})`);
           }
         }
       })
@@ -1705,7 +1706,7 @@ class SmartSocketServer {
           // Metrics endpoint
           res.writeHeader('Access-Control-Allow-Origin', '*');
           res.writeHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify(this.getOptimizationStats(), null, 2));
+          res.end(JSON.stringify(server.getOptimizationStats(), null, 2));
         } else if (url.startsWith('/client.js')) {
           // Serve client library
           res.writeHeader('Access-Control-Allow-Origin', '*');
@@ -1717,7 +1718,7 @@ class SmartSocketServer {
           res.end('SmartSocket Server - WebSocket endpoint only');
         }
       })
-      .listen(this.port, '0.0.0.0', (token) => {
+      .listen(server.port, '0.0.0.0', (token) => {
         if (token) {
           const interfaces = networkInterfaces();
           let serverIp = 'localhost';
@@ -1732,20 +1733,20 @@ class SmartSocketServer {
             }
           }
           
-          this._logVibe(`🚀 SmartSocket running on port ${this.port}`);
-          this._logVibe(`📊 Stats available at http://${serverIp}:${this.port}/smartsocket/stats`);
-          this._logVibe(`🌐 Also accessible at http://localhost:${this.port}/smartsocket/stats`);
+          server._logVibe(`🚀 SmartSocket running on port ${server.port}`);
+          server._logVibe(`📊 Stats available at http://${serverIp}:${server.port}/smartsocket/stats`);
+          server._logVibe(`🌐 Also accessible at http://localhost:${server.port}/smartsocket/stats`);
           
           // Display API Key for connection
           console.log('\n' + '═'.repeat(70));
           console.log('🔑 SmartSocket Connection Details');
           console.log('═'.repeat(70));
-          console.log(`📍 Server Address: ${serverIp}:${this.port}`);
-          console.log(`🔐 API Key: ${this.apiKey}`);
+          console.log(`📍 Server Address: ${serverIp}:${server.port}`);
+          console.log(`🔐 API Key: ${server.apiKey}`);
           console.log('═'.repeat(70));
           console.log('\n💻 Add to your webpage:\n');
-          console.log(`const socket = new SmartSocket('ws://${serverIp}:${this.port}', {`);
-          console.log(`  apiKey: '${this.apiKey}'`);
+          console.log(`const socket = new SmartSocket('ws://${serverIp}:${server.port}', {`);
+          console.log(`  apiKey: '${server.apiKey}'`);
           console.log(`});\n`);
           console.log('═'.repeat(70) + '\n');
           
