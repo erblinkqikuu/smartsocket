@@ -1483,16 +1483,6 @@ class SmartSocketServer {
     const namespaceManager = this.namespaceManager;
     const server = this;
     
-    // DEBUG: Log what we're capturing
-    console.log(`\n[LISTEN] 📡 Starting server on port ${this.port}`);
-    console.log(`[LISTEN] Server instance ID: ${server.instanceId}`);
-    console.log(`[LISTEN] NamespaceManager exists: ${!!namespaceManager}`);
-    if (namespaceManager) {
-      console.log(`[LISTEN] NamespaceManager instance ID: ${namespaceManager.instanceId}`);
-      console.log(`[LISTEN] Captured namespaces at listen(): ${Array.from(namespaceManager.namespaces.keys()).join(', ')}`);
-      console.log(`[LISTEN] Namespace Map size: ${namespaceManager.namespaces.size}\n`);
-    }
-    
     this.app = uWS.App({})
       .ws('/*', {
         compression: uWS.SHARED_COMPRESSOR,
@@ -1578,14 +1568,14 @@ class SmartSocketServer {
                 if (quizNamespace) {
                   quizNamespace.addSocket(socket);
                   socket.namespace = '/quiz';
-                  console.log(`[NAMESPACE] ✅ Socket auto-assigned to namespace [/quiz] (first event: ${event})`);
+                  console.log(`[NAMESPACE] ✅ Socket auto-assigned to namespace [/quiz]`);
                   
                   // Fire namespace-specific connection handler if registered
                   if (quizNamespace.handlers['connection']) {
                     quizNamespace.handlers['connection'](socket);
                   }
                 } else {
-                  console.warn(`[AUTO-ASSIGN] WARNING: /quiz namespace not found`);
+                  console.warn(`[AUTO-ASSIGN] ⚠️  /quiz namespace not found - server may have been restarted`);
                 }
               }
 
