@@ -1511,14 +1511,25 @@ class SmartSocketServer {
 
               // Auto-assign socket to namespace on first quiz-related event
               if (!socket.namespace && data && data.quizCode && this.namespaceManager) {
+                console.log(`[AUTO-ASSIGN] ========= NAMESPACE DEBUG START ==========`);
                 console.log(`[AUTO-ASSIGN] Server instanceId: ${this.instanceId}`);
                 console.log(`[AUTO-ASSIGN] NamespaceManager instanceId: ${this.namespaceManager.instanceId}`);
                 console.log(`[AUTO-ASSIGN] this.namespaceManager exists: ${this.namespaceManager ? 'YES' : 'NO'}`);
                 console.log(`[AUTO-ASSIGN] this.namespaceManager.namespaces exists: ${this.namespaceManager.namespaces ? 'YES' : 'NO'}`);
+                console.log(`[AUTO-ASSIGN] this.namespaceManager.namespaces instanceof Map: ${this.namespaceManager.namespaces instanceof Map ? 'YES' : 'NO'}`);
+                console.log(`[AUTO-ASSIGN] this.namespaceManager.namespaces.size: ${this.namespaceManager.namespaces.size}`);
+                
+                // Log all entries in the Map
+                console.log(`[AUTO-ASSIGN] Iterating through namespaces Map:`);
+                for (const [key, value] of this.namespaceManager.namespaces.entries()) {
+                  console.log(`  - Key: ${key}, Value exists: ${value ? 'YES' : 'NO'}`);
+                }
+                
                 console.log(`[AUTO-ASSIGN] Checking for /quiz namespace...`);
                 const quizNamespace = this.namespaceManager.namespaces.get('/quiz');
                 console.log(`[AUTO-ASSIGN] Namespace found: ${quizNamespace ? 'YES' : 'NO'}`);
                 console.log(`[AUTO-ASSIGN] Available namespaces: ${Array.from(this.namespaceManager.namespaces.keys()).join(', ')}`);
+                console.log(`[AUTO-ASSIGN] ========= NAMESPACE DEBUG END ==========`);
                 
                 if (quizNamespace) {
                   quizNamespace.addSocket(socket);
