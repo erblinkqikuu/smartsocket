@@ -1,6 +1,5 @@
 // SmartSocket Core - Created by Erblin Kqiku - Optimized for High-Performance Real-Time Games
 // ENHANCED WITH: Object Pool, Message Cache, Rate Limiter, Predictive Compression, Connection Multiplexing, Encryption
-// PLUS: Middleware, Namespaces, Acknowledgments, Error Handling, Advanced API
 
 import uWS from 'uWebSockets.js';
 import { createDeflate, createInflate } from 'zlib';
@@ -17,10 +16,6 @@ import { PredictiveCompressor, ContentTypeAnalyzer } from './predictive-compress
 import { ConnectionPool, BufferPool as BufferPoolOptimized } from './connection-pool.js';
 import { ConnectionMultiplexer, StreamScheduler } from './connection-multiplexer.js';
 import { EncryptionManager } from './encryption.js';
-import { MiddlewareManager } from './middleware.js';
-import { NamespaceManager } from './namespace.js';
-import { AcknowledgmentManager } from './acknowledgment.js';
-import { ErrorHandler, SmartSocketAPI } from './error-handler.js';
 
 // Get directory path
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -783,15 +778,26 @@ class SmartSocket {
     this.handlers[event] = handler;
   }
 
-  emit(event, data) {
+  /**
+   * Emit with optional acknowledgment callback
+   */
+  emit(event, data, callback = null) {
     // Use object pool for message creation
     const msg = this.server.messagePool.acquire();
     msg.event = event;
     msg.data = data;
     msg.timestamp = Date.now();
     
+    // Add acknowledgment ID if callback provided and feature enabled
+    let ackId = null;
+    if (callback && this.server.features.acknowledgments) {
+      ackId = this.server._generateAckId();
+      msg.ackId = ackId;
+      this.server._registerAck(this, ackId, callback);
+    }
+    
     // Async encoding - handle compression and chunking
-    BinaryEncoder.encode(event, data).then(message => {
+    BinaryEncoder.encode(event, ackId ? { ...data, __ackId: ackId } : data).then(message => {
       if (!message) {
         console.error(`[SmartSocket] Encode returned null/undefined for event: ${event}`);
         this.server.messagePool.release(msg);
@@ -842,32 +848,15 @@ class SmartSocket {
 
   join(room) {
     this.rooms.add(room);
-    
-    // Add to server-level room
     if (!this.server.rooms.has(room)) {
       this.server.rooms.set(room, new Set());
     }
     this.server.rooms.get(room).add(this);
-    
-    // Also add to namespace-level room if socket is assigned to a namespace
-    if (this.namespace && this.server.namespaceManager) {
-      const namespace = this.server.namespaceManager.namespaces.get(this.namespace);
-      if (namespace) {
-        if (!namespace.rooms.has(room)) {
-          namespace.rooms.set(room, new Set());
-        }
-        namespace.rooms.get(room).add(this);
-        console.log(`[NAMESPACE-ROOM] Socket added to room [${room}] in namespace [${this.namespace}]`);
-      }
-    }
-    
     this.server._logVibe(`Socket ${this.id} joined room [${room}]`);
   }
 
   leave(room) {
     this.rooms.delete(room);
-    
-    // Remove from server-level room
     const roomSockets = this.server.rooms.get(room);
     if (roomSockets) {
       roomSockets.delete(this);
@@ -877,21 +866,6 @@ class SmartSocket {
         this.server.roomStateCache.invalidate();
       }
     }
-    
-    // Also remove from namespace-level room if socket is assigned to a namespace
-    if (this.namespace && this.server.namespaceManager) {
-      const namespace = this.server.namespaceManager.namespaces.get(this.namespace);
-      if (namespace) {
-        const nsRoomSockets = namespace.rooms.get(room);
-        if (nsRoomSockets) {
-          nsRoomSockets.delete(this);
-          if (nsRoomSockets.size === 0) {
-            namespace.rooms.delete(room);
-          }
-        }
-      }
-    }
-    
     this.server._logVibe(`Socket ${this.id} left room [${room}]`);
   }
 
@@ -925,45 +899,42 @@ class SmartSocket {
 
 class SmartSocketServer {
   constructor(port = 8080, options = {}) {
-    // Handle both calling conventions:
-    // new SmartSocket(8080, { enableNamespaces: true })  ✅ Standard
-    // new SmartSocket({ port: 8080, enableNamespaces: true })  ✅ Config object
-    let actualPort = 8080;
-    let actualOptions = options;
-    
-    if (typeof port === 'object' && port !== null && !Array.isArray(port)) {
-      // First arg is a config object
-      actualPort = port.port || 8080;
-      actualOptions = port;
-    } else {
-      // First arg is the port number
-      actualPort = port;
-      actualOptions = options;
-    }
-    
-    // Unique instance ID for debugging
-    this.instanceId = Math.random().toString(36).substring(7);
-    console.log(`[SmartSocketServer] NEW INSTANCE CREATED: ${this.instanceId}`);
-    
-    this.port = actualPort;
-    this.options = {
-      // Feature flags - enabled by default for out-of-box functionality
-      enableMiddleware: actualOptions.enableMiddleware !== false,
-      enableNamespaces: actualOptions.enableNamespaces !== false,
-      enableAcknowledgments: actualOptions.enableAcknowledgments !== false,
-      enableErrorHandling: actualOptions.enableErrorHandling !== false,
-      // Other options
-      verbose: actualOptions.verbose !== false,
-      ...actualOptions
-    };
-    
+    this.port = port;
+    this.options = options;
     this.sockets = new Set();
     this.rooms = new Map();
     this.roomStates = new Map();
     this.handlers = {};
     this.app = null;
     this.heartbeatInterval = null;
-    this.verbose = this.options.verbose;
+    this.verbose = options.verbose !== false;
+    
+    // ============================================
+    // Feature Toggles - All enabled by default
+    // ============================================
+    this.features = {
+      middleware: options.middleware !== false,    // Enable/disable middleware system
+      acknowledgments: options.acknowledgments !== false, // Enable/disable acks
+      smartsocketApi: options.smartsocketApi !== false,  // Enable/disable SmartSocket API
+      errorHandlers: options.errorHandlers !== false    // Enable/disable error handlers
+    };
+    
+    // Middleware system
+    this.middlewares = [];
+    
+    // Acknowledgments system
+    this.pendingAcks = new Map(); // ackId -> { socket, timeout, callback }
+    this.ackCounter = 0;
+    this.ackTimeout = options.ackTimeout || 5000; // 5 second timeout
+    
+    // Error handlers
+    this.errorHandlers = {
+      'connection-error': null,
+      'message-error': null,
+      'validation-error': null,
+      'ack-timeout': null,
+      'middleware-error': null
+    };
     
     // ============================================
     // TIER 2 & 3 Optimizations - Initialized Here
@@ -1010,44 +981,6 @@ class SmartSocketServer {
       minSize: 500,
       maxSize: 5000
     });
-    
-    // ============================================
-    // Feature Systems - Opt-in via flags
-    // ============================================
-    
-    // 1. Middleware System
-    if (this.options.enableMiddleware) {
-      this.middleware = new MiddlewareManager();
-      this._logVibe('✅ Middleware system enabled');
-    } else {
-      this.middleware = null;
-    }
-    
-    // 2. Namespace System
-    if (this.options.enableNamespaces) {
-      this.namespaceManager = new NamespaceManager(this);
-      this._logVibe('✅ Namespace system enabled');
-    } else {
-      this.namespaceManager = null;
-    }
-    
-    // 3. Acknowledgment System
-    if (this.options.enableAcknowledgments) {
-      this.ackManager = new AcknowledgmentManager(this.options);
-      this._logVibe('✅ Acknowledgment system enabled');
-    } else {
-      this.ackManager = null;
-    }
-    
-    // 4. Error Handling & Smart API
-    if (this.options.enableErrorHandling) {
-      this.errorHandler = new ErrorHandler(this);
-      this.api = new SmartSocketAPI(this);
-      this._logVibe('✅ Error handling & Smart API enabled');
-    } else {
-      this.errorHandler = null;
-      this.api = null;
-    }
     
     // Statistics tracking
     this.stats = {
@@ -1113,84 +1046,173 @@ class SmartSocketServer {
     return prefix + randomPart;
   }
 
+  // ============================================
+  // Middleware System
+  // ============================================
+  
+  /**
+   * Register middleware function
+   * Middleware receives (socket, event, data, next) and calls next() to continue
+   */
+  use(middlewareFunc) {
+    if (!this.features.middleware) {
+      console.warn('[SmartSocket] Middleware feature is disabled');
+      return this;
+    }
+    this.middlewares.push(middlewareFunc);
+    return this;
+  }
+
+  /**
+   * Execute all middleware in sequence
+   */
+  async _executeMiddleware(socket, event, data) {
+    if (!this.features.middleware || this.middlewares.length === 0) {
+      return { continueProcessing: true, event, data };
+    }
+
+    let currentIndex = 0;
+    const middlewareChain = async () => {
+      if (currentIndex >= this.middlewares.length) {
+        return { continueProcessing: true, event, data };
+      }
+
+      const middleware = this.middlewares[currentIndex++];
+      
+      try {
+        return await new Promise((resolve) => {
+          const nextCalled = { called: false };
+          
+          // next() callback
+          const next = (modifiedData = null) => {
+            if (nextCalled.called) return; // Prevent double calls
+            nextCalled.called = true;
+            
+            // Allow middleware to modify data
+            if (modifiedData !== null) {
+              data = modifiedData;
+            }
+            
+            // Continue to next middleware
+            resolve(middlewareChain());
+          };
+
+          // Execute middleware with timeout
+          const timeoutId = setTimeout(() => {
+            if (!nextCalled.called) {
+              nextCalled.called = true;
+              console.warn('[SmartSocket] Middleware timeout - skipping');
+              resolve({ continueProcessing: true, event, data });
+            }
+          }, 1000); // 1 second timeout per middleware
+
+          try {
+            middleware(socket, event, data, next);
+          } catch (err) {
+            clearTimeout(timeoutId);
+            if (!nextCalled.called) {
+              nextCalled.called = true;
+              this._handleError('middleware-error', socket, { error: err.message, event });
+              resolve({ continueProcessing: false, event, data });
+            }
+          }
+        });
+      } catch (err) {
+        console.error('[SmartSocket] Middleware error:', err.message);
+        return { continueProcessing: false, event, data };
+      }
+    };
+
+    return middlewareChain();
+  }
+
+  // ============================================
+  // Acknowledgments System
+  // ============================================
+
+  /**
+   * Generate unique acknowledgment ID
+   */
+  _generateAckId() {
+    return `ack_${++this.ackCounter}_${Date.now()}`;
+  }
+
+  /**
+   * Register acknowledgment handler (internal use)
+   */
+  _registerAck(socket, ackId, callback) {
+    const timeoutId = setTimeout(() => {
+      this.pendingAcks.delete(ackId);
+      this._handleError('ack-timeout', socket, { ackId });
+      if (callback) callback(new Error('Acknowledgment timeout'));
+    }, this.ackTimeout);
+
+    this.pendingAcks.set(ackId, {
+      socket,
+      timeoutId,
+      callback
+    });
+  }
+
+  /**
+   * Handle incoming acknowledgment from client
+   */
+  _handleAckResponse(ackId, data) {
+    const ackInfo = this.pendingAcks.get(ackId);
+    if (ackInfo) {
+      clearTimeout(ackInfo.timeoutId);
+      this.pendingAcks.delete(ackId);
+      
+      if (ackInfo.callback) {
+        ackInfo.callback(null, data);
+      }
+    }
+  }
+
+  // ============================================
+  // Error Handlers System
+  // ============================================
+
+  /**
+   * Register error handler for specific error types
+   */
+  onError(errorType, handler) {
+    if (!this.features.errorHandlers) {
+      console.warn('[SmartSocket] Error handlers feature is disabled');
+      return this;
+    }
+    
+    if (this.errorHandlers.hasOwnProperty(errorType)) {
+      this.errorHandlers[errorType] = handler;
+    } else {
+      console.warn(`[SmartSocket] Unknown error type: ${errorType}`);
+    }
+    return this;
+  }
+
+  /**
+   * Internal error handling
+   */
+  _handleError(errorType, socket, context = {}) {
+    if (!this.features.errorHandlers) return;
+
+    const handler = this.errorHandlers[errorType];
+    if (handler) {
+      try {
+        handler(socket, context);
+      } catch (err) {
+        console.error(`[SmartSocket] Error in error handler: ${err.message}`);
+      }
+    } else {
+      // Default error logging
+      console.error(`[SmartSocket] ${errorType}:`, context);
+    }
+  }
+
   _logVibe(message) {
     if (this.verbose) {
       console.log(`[SmartSocket] ${message}`);
     }
-  }
-
-  /**
-   * Feature: Namespace - Get or create namespace
-   * Usage: server.namespace('/chat')
-   */
-  namespace(name) {
-    if (!this.namespaceManager) {
-      throw new Error('Namespaces not enabled. Create server with { enableNamespaces: true }');
-    }
-    return this.namespaceManager.namespace(name);
-  }
-
-  /**
-   * Feature: Middleware - Use middleware
-   * Usage: server.use((socket, event, data, next) => { ... })
-   */
-  use(handler) {
-    if (!this.middleware) {
-      throw new Error('Middleware not enabled. Create server with { enableMiddleware: true }');
-    }
-    return this.middleware.use(handler);
-  }
-
-  /**
-   * Feature: Middleware - Request handler
-   */
-  useRequest(handler) {
-    if (!this.middleware) {
-      throw new Error('Middleware not enabled. Create server with { enableMiddleware: true }');
-    }
-    return this.middleware.useRequest(handler);
-  }
-
-  /**
-   * Feature: Middleware - Response handler
-   */
-  useResponse(handler) {
-    if (!this.middleware) {
-      throw new Error('Middleware not enabled. Create server with { enableMiddleware: true }');
-    }
-    return this.middleware.useResponse(handler);
-  }
-
-  /**
-   * Feature: Middleware - Error handler
-   */
-  useError(handler) {
-    if (!this.middleware) {
-      throw new Error('Middleware not enabled. Create server with { enableMiddleware: true }');
-    }
-    return this.middleware.useError(handler);
-  }
-
-  /**
-   * Feature: Error Handling - Register error handler
-   */
-  onError(handler) {
-    if (!this.errorHandler) {
-      throw new Error('Error handling not enabled. Create server with { enableErrorHandling: true }');
-    }
-    return this.errorHandler.onError(handler);
-  }
-  
-  /**
-   * Get feature status
-   */
-  getFeatures() {
-    return {
-      middleware: this.middleware ? 'enabled' : 'disabled',
-      namespaces: this.namespaceManager ? 'enabled' : 'disabled',
-      acknowledgments: this.ackManager ? 'enabled' : 'disabled',
-      errorHandling: this.errorHandler ? 'enabled' : 'disabled'
-    };
   }
 
   /**
@@ -1479,10 +1501,6 @@ class SmartSocketServer {
   }
 
   listen(callback) {
-    // Store reference to prevent namespace loss
-    const namespaceManager = this.namespaceManager;
-    const server = this;
-    
     this.app = uWS.App({})
       .ws('/*', {
         compression: uWS.SHARED_COMPRESSOR,
@@ -1490,20 +1508,18 @@ class SmartSocketServer {
         idleTimeout: 120,
         
         open: (ws) => {
-          const socket = new SmartSocket(ws, server);
-          server.sockets.add(socket);
-          
+          const socket = new SmartSocket(ws, this);
+          this.sockets.add(socket);
           console.log(`\n[CONNECTION] ✅ New client connected`);
           console.log(`  └─ Socket ID: ${socket.id}`);
-          console.log(`  └─ Total Connections: ${server.sockets.size}`);
+          console.log(`  └─ Total Connections: ${this.sockets.size}`);
           console.log(`  └─ Timestamp: ${new Date().toISOString()}\n`);
-          
-          server._logVibe(`✅ New connection: ${socket.id} (Total: ${server.sockets.size})`);
-          server._handleConnection(ws, socket);
+          this._logVibe(`✅ New connection: ${socket.id} (Total: ${this.sockets.size})`);
+          this._handleConnection(ws, socket);
         },
         
         message: (ws, message, isBinary) => {
-          const socket = Array.from(server.sockets).find(s => s.ws === ws);
+          const socket = Array.from(this.sockets).find(s => s.ws === ws);
           if (socket) {
             try {
               console.log(`\n[MESSAGE] 📨 Received from ${socket.id}`);
@@ -1511,13 +1527,13 @@ class SmartSocketServer {
               console.log(`  └─ Size: ${message.length} bytes`);
               
               // Check rate limit first
-              if (!server.rateLimiter.isAllowed(socket.id)) {
-                server.stats.rateLimitedRequests++;
+              if (!this.rateLimiter.isAllowed(socket.id)) {
+                this.stats.rateLimitedRequests++;
                 console.log(`  └─ ⚠️  Rate limited!\n`);
                 return;
               }
               
-              server.stats.messagesProcessed++;
+              this.stats.messagesProcessed++;
               
               // Decrypt message if encryption is enabled (DISABLED)
               let decrypted = message;
@@ -1544,116 +1560,130 @@ class SmartSocketServer {
               
               console.log(`  └─ Event: ${parsed.event}`);
               console.log(`  └─ Data: ${JSON.stringify(parsed.data).substring(0, 100)}...\n`);
-              const { event, data } = parsed;
+              let { event, data, ackId } = parsed;
+              
+              // Extract acknowledgment ID if present
+              if (data && data.__ackId) {
+                ackId = data.__ackId;
+                delete data.__ackId;
+              }
 
+              // Handle special pong events
               if (event === 'pong') {
                 socket.lastPong = Date.now();
+                return;
+              }
+              
+              // Handle acknowledgment responses from client
+              if (event === '__ack__' && data && data.ackId) {
+                this._handleAckResponse(data.ackId, data.response);
                 return;
               }
 
               // Try cache for certain event types
               if (event === 'state:get' && data && data.roomId) {
-                const cached = server.roomStateCache.getRoomState(data.roomId);
+                const cached = this.roomStateCache.getRoomState(data.roomId);
                 if (cached) {
-                  server.stats.cachedLookups++;
+                  this.stats.cachedLookups++;
                   socket.emit('state:cached', cached);
                   return;
                 }
               }
 
-              // Auto-assign socket to namespace on first quiz-related event
-              if (!socket.namespace && data && data.quizCode && namespaceManager) {
-                // Debug: Check what namespaces exist
-                const allNamespaces = Array.from(namespaceManager.namespaces.keys());
-                console.log(`[AUTO-ASSIGN] DEBUG: Available namespaces: ${allNamespaces.join(', ')}`);
-                console.log(`[AUTO-ASSIGN] DEBUG: NamespaceManager instance: ${namespaceManager.instanceId}`);
-                console.log(`[AUTO-ASSIGN] DEBUG: Server instance: ${server.instanceId}`);
-                
-                const quizNamespace = namespaceManager.namespaces.get('/quiz');
-                
-                if (quizNamespace) {
-                  quizNamespace.addSocket(socket);
-                  socket.namespace = '/quiz';
-                  console.log(`[NAMESPACE] ✅ Socket auto-assigned to namespace [/quiz]`);
+              // Execute middleware
+              this._executeMiddleware(socket, event, data).then(async (middlewareResult) => {
+                if (!middlewareResult.continueProcessing) {
+                  console.log(`  └─ ⚠️  Middleware blocked message\n`);
                   
-                  // Fire namespace-specific connection handler if registered
-                  if (quizNamespace.handlers['connection']) {
-                    quizNamespace.handlers['connection'](socket);
+                  // Send error acknowledgment if ack was requested
+                  if (ackId && this.server.features.acknowledgments) {
+                    socket.emit('__ack__', { 
+                      ackId, 
+                      response: { error: 'Middleware blocked message' }
+                    });
                   }
-                } else {
-                  console.warn(`[AUTO-ASSIGN] ⚠️  /quiz namespace not found - server may have been restarted`);
-                }
-              }
-
-              // Check namespace handlers FIRST (highest priority for organized routing)
-              if (socket.namespace && namespaceManager) {
-                const namespace = namespaceManager.namespaces.get(socket.namespace);
-                if (namespace && namespace.handlers[event]) {
-                  console.log(`[ROUTER] Event '${event}' routed to namespace [${socket.namespace}]`);
-                  namespace.handlers[event](socket, data);
                   return;
                 }
-              }
 
-              // Then check socket-specific handlers
-              if (socket.handlers[event]) {
-                socket.handlers[event](data);
-              } else if (server.handlers[event]) {
-                server.handlers[event](socket, data);
-              }
-              
-              server.stats.messagesOptimized++;
+                // Use potentially modified data from middleware
+                event = middlewareResult.event;
+                data = middlewareResult.data;
+
+                // Call appropriate handler
+                let handlerResult = null;
+                if (socket.handlers[event]) {
+                  handlerResult = socket.handlers[event](data);
+                } else if (this.handlers[event]) {
+                  handlerResult = this.handlers[event](socket, data);
+                }
+
+                // Handle acknowledgment
+                if (ackId && this.server.features.acknowledgments) {
+                  // Wait for handler to complete if it's async
+                  if (handlerResult && typeof handlerResult.then === 'function') {
+                    try {
+                      const result = await handlerResult;
+                      socket.emit('__ack__', { 
+                        ackId, 
+                        response: result || { success: true }
+                      });
+                    } catch (err) {
+                      socket.emit('__ack__', { 
+                        ackId, 
+                        response: { error: err.message }
+                      });
+                    }
+                  } else {
+                    // Send acknowledgment immediately for sync handlers
+                    socket.emit('__ack__', { 
+                      ackId, 
+                      response: handlerResult || { success: true }
+                    });
+                  }
+                }
+                
+                this.stats.messagesOptimized++;
+              }).catch(err => {
+                console.error(`[SmartSocket] Middleware execution error: ${err.message}`);
+                this._handleError('middleware-error', socket, { error: err.message, event });
+              });
             } catch (err) {
-              server._logVibe(`❌ Error parsing message: ${err.message}`);
+              this._logVibe(`❌ Error parsing message: ${err.message}`);
+              this._handleError('message-error', socket, { error: err.message });
             }
           }
         },
         
         close: (ws, code, message) => {
-          const socket = Array.from(server.sockets).find(s => s.ws === ws);
+          const socket = Array.from(this.sockets).find(s => s.ws === ws);
           if (socket) {
             console.log(`\n[DISCONNECT] ❌ Client disconnected`);
             console.log(`  └─ Socket ID: ${socket.id}`);
-            console.log(`  └─ Namespace: ${socket.namespace || 'default'}`);
             console.log(`  └─ Rooms: ${Array.from(socket.rooms).join(', ') || 'none'}`);
             console.log(`  └─ Duration: ${Date.now() - socket.createdAt}ms`);
             console.log(`  └─ Code: ${code}`);
-            console.log(`  └─ Remaining Connections: ${server.sockets.size - 1}`);
+            console.log(`  └─ Remaining Connections: ${this.sockets.size - 1}`);
             console.log(`  └─ Timestamp: ${new Date().toISOString()}\n`);
             
             // Clear encryption key for this connection (DISABLED)
             // encryptionManager.clearSessionKey(socket.id);
             
-            // Remove from namespace if assigned
-            if (socket.namespace && namespaceManager) {
-              const namespace = namespaceManager.namespaces.get(socket.namespace);
-              if (namespace) {
-                namespace.removeSocket(socket);
-                console.log(`[NAMESPACE] Socket removed from namespace [${socket.namespace}]`);
-                
-                // Fire namespace-specific disconnect handler if registered
-                if (namespace.handlers['disconnect']) {
-                  namespace.handlers['disconnect'](socket);
-                }
-              }
-            }
-            
-            server.sockets.delete(socket);
+            this.sockets.delete(socket);
             socket.rooms.forEach(room => {
-              const roomSockets = server.rooms.get(room);
+              const roomSockets = this.rooms.get(room);
               if (roomSockets) {
                 roomSockets.delete(socket);
                 if (roomSockets.size === 0) {
-                  server.rooms.delete(room);
+                  this.rooms.delete(room);
                 }
               }
             });
             
-            if (server.handlers['disconnect']) {
-              server.handlers['disconnect'](socket);
+            if (this.handlers['disconnect']) {
+              this.handlers['disconnect'](socket);
             }
             
-            server._logVibe(`❌ Disconnected: ${socket.id} (Total: ${server.sockets.size})`);
+            this._logVibe(`❌ Disconnected: ${socket.id} (Total: ${this.sockets.size})`);
           }
         }
       })
@@ -1753,27 +1783,13 @@ class SmartSocketServer {
   }
 }
 
-// Main export - export the class directly so users can do:
-// new SmartSocket(port, options)
-// new SmartSocket({ port, ...options })
-export default SmartSocketServer;
-
-// Also export the helper function for convenience:
-export function smartsocket(port = 8080, options = {}) {
+// Main export function
+export default function smartsocket(port = 8080, options = {}) {
   return new SmartSocketServer(port, options);
 }
 
 // Named exports for flexibility
-export { 
-  SmartSocketServer, 
-  SmartSocket, 
-  BinaryEncoder,
-  MiddlewareManager,
-  NamespaceManager,
-  AcknowledgmentManager,
-  ErrorHandler,
-  SmartSocketAPI
-};
+export { smartsocket, SmartSocketServer, SmartSocket, BinaryEncoder };
 
 // ============================================
 // Auto-start server when run directly
