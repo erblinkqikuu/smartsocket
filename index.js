@@ -1563,6 +1563,12 @@ class SmartSocketServer {
 
               // Auto-assign socket to namespace on first quiz-related event
               if (!socket.namespace && data && data.quizCode && namespaceManager) {
+                // Debug: Check what namespaces exist
+                const allNamespaces = Array.from(namespaceManager.namespaces.keys());
+                console.log(`[AUTO-ASSIGN] DEBUG: Available namespaces: ${allNamespaces.join(', ')}`);
+                console.log(`[AUTO-ASSIGN] DEBUG: NamespaceManager instance: ${namespaceManager.instanceId}`);
+                console.log(`[AUTO-ASSIGN] DEBUG: Server instance: ${server.instanceId}`);
+                
                 const quizNamespace = namespaceManager.namespaces.get('/quiz');
                 
                 if (quizNamespace) {
