@@ -842,15 +842,32 @@ class SmartSocket {
 
   join(room) {
     this.rooms.add(room);
+    
+    // Add to server-level room
     if (!this.server.rooms.has(room)) {
       this.server.rooms.set(room, new Set());
     }
     this.server.rooms.get(room).add(this);
+    
+    // Also add to namespace-level room if socket is assigned to a namespace
+    if (this.namespace && this.server.namespaceManager) {
+      const namespace = this.server.namespaceManager.namespaces.get(this.namespace);
+      if (namespace) {
+        if (!namespace.rooms.has(room)) {
+          namespace.rooms.set(room, new Set());
+        }
+        namespace.rooms.get(room).add(this);
+        console.log(`[NAMESPACE-ROOM] Socket added to room [${room}] in namespace [${this.namespace}]`);
+      }
+    }
+    
     this.server._logVibe(`Socket ${this.id} joined room [${room}]`);
   }
 
   leave(room) {
     this.rooms.delete(room);
+    
+    // Remove from server-level room
     const roomSockets = this.server.rooms.get(room);
     if (roomSockets) {
       roomSockets.delete(this);
@@ -860,6 +877,21 @@ class SmartSocket {
         this.server.roomStateCache.invalidate();
       }
     }
+    
+    // Also remove from namespace-level room if socket is assigned to a namespace
+    if (this.namespace && this.server.namespaceManager) {
+      const namespace = this.server.namespaceManager.namespaces.get(this.namespace);
+      if (namespace) {
+        const nsRoomSockets = namespace.rooms.get(room);
+        if (nsRoomSockets) {
+          nsRoomSockets.delete(this);
+          if (nsRoomSockets.size === 0) {
+            namespace.rooms.delete(room);
+          }
+        }
+      }
+    }
+    
     this.server._logVibe(`Socket ${this.id} left room [${room}]`);
   }
 
