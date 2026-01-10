@@ -1715,14 +1715,18 @@ class SmartSocketServer {
   }
 }
 
-// Main export function
-export default function smartsocket(port = 8080, options = {}) {
+// Main export - export the class directly so users can do:
+// new SmartSocket(port, options)
+// new SmartSocket({ port, ...options })
+export default SmartSocketServer;
+
+// Also export the helper function for convenience:
+export function smartsocket(port = 8080, options = {}) {
   return new SmartSocketServer(port, options);
 }
 
 // Named exports for flexibility
 export { 
-  smartsocket, 
   SmartSocketServer, 
   SmartSocket, 
   BinaryEncoder,
