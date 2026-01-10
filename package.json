@@ -2,7 +2,6 @@
   "name": "smartsocket",
   "version": "1.0.0",
   "description": "Production WebSocket server with DEFLATE compression, auto-reconnect, room broadcasting, and real-time metrics. 20-30x faster than Socket.IO.",
-  "type": "module",
   "main": "index.js",
   "author": "Erblin Kqiku",
   "license": "MIT",
