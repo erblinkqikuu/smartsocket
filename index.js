@@ -1451,6 +1451,16 @@ class SmartSocketServer {
     const namespaceManager = this.namespaceManager;
     const server = this;
     
+    // DEBUG: Log what we're capturing
+    console.log(`\n[LISTEN] 📡 Starting server on port ${this.port}`);
+    console.log(`[LISTEN] Server instance ID: ${server.instanceId}`);
+    console.log(`[LISTEN] NamespaceManager exists: ${!!namespaceManager}`);
+    if (namespaceManager) {
+      console.log(`[LISTEN] NamespaceManager instance ID: ${namespaceManager.instanceId}`);
+      console.log(`[LISTEN] Captured namespaces at listen(): ${Array.from(namespaceManager.namespaces.keys()).join(', ')}`);
+      console.log(`[LISTEN] Namespace Map size: ${namespaceManager.namespaces.size}\n`);
+    }
+    
     this.app = uWS.App({})
       .ws('/*', {
         compression: uWS.SHARED_COMPRESSOR,
