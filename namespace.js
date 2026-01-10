@@ -173,6 +173,9 @@ export class Namespace {
 
 export class NamespaceManager {
   constructor(server) {
+    this.instanceId = Math.random().toString(36).substring(7);
+    console.log(`[NamespaceManager] NEW INSTANCE: ${this.instanceId} (for server: ${server.instanceId})`);
+    
     this.server = server;
     this.namespaces = new Map();
     this.defaultNamespace = new Namespace('/', server);

@@ -893,6 +893,10 @@ class SmartSocket {
 
 class SmartSocketServer {
   constructor(port = 8080, options = {}) {
+    // Unique instance ID for debugging
+    this.instanceId = Math.random().toString(36).substring(7);
+    console.log(`[SmartSocketServer] NEW INSTANCE CREATED: ${this.instanceId}`);
+    
     this.port = port;
     this.options = {
       // Feature flags - enabled by default for out-of-box functionality
@@ -1507,14 +1511,14 @@ class SmartSocketServer {
 
               // Auto-assign socket to namespace on first quiz-related event
               if (!socket.namespace && data && data.quizCode && this.namespaceManager) {
+                console.log(`[AUTO-ASSIGN] Server instanceId: ${this.instanceId}`);
+                console.log(`[AUTO-ASSIGN] NamespaceManager instanceId: ${this.namespaceManager.instanceId}`);
                 console.log(`[AUTO-ASSIGN] this.namespaceManager exists: ${this.namespaceManager ? 'YES' : 'NO'}`);
                 console.log(`[AUTO-ASSIGN] this.namespaceManager.namespaces exists: ${this.namespaceManager.namespaces ? 'YES' : 'NO'}`);
                 console.log(`[AUTO-ASSIGN] Checking for /quiz namespace...`);
                 const quizNamespace = this.namespaceManager.namespaces.get('/quiz');
                 console.log(`[AUTO-ASSIGN] Namespace found: ${quizNamespace ? 'YES' : 'NO'}`);
                 console.log(`[AUTO-ASSIGN] Available namespaces: ${Array.from(this.namespaceManager.namespaces.keys()).join(', ')}`);
-                console.log(`[DEBUG] this.sockets.size: ${this.sockets.size}`);
-                console.log(`[DEBUG] this.namespaceManager constructor: ${this.namespaceManager.constructor.name}`);
                 
                 if (quizNamespace) {
                   quizNamespace.addSocket(socket);
