@@ -1,13 +1,13 @@
 // SmartSocket Core - Created by Erblin Kqiku - Optimized for High-Performance Real-Time Games
 // ENHANCED WITH: Object Pool, Message Cache, Rate Limiter, Predictive Compression, Connection Multiplexing, Encryption
 
-import uWS from 'uWebSockets.js';
-import { createDeflate, createInflate } from 'zlib';
-import { promisify } from 'util';
-import { networkInterfaces } from 'os';
-import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
+const uWS = require('uWebSockets.js');
+const { createDeflate, createInflate } = require('zlib');
+const { promisify } = require('util');
+const { networkInterfaces } = require('os');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 import { fileURLToPath } from 'url';
 import { ObjectPool, createMessageObject, resetMessageObject } from './object-pool.js';
 import { MessageCache, RoomStateCache, UserSessionCache } from './message-cache.js';
@@ -1789,12 +1789,11 @@ class SmartSocketServer {
 }
 
 // Main export function
-export default function smartsocket(port = 8080, options = {}) {
+function smartsocket(port = 8080, options = {}) {
   return new SmartSocketServer(port, options);
 }
 
-// Named exports for flexibility
-export { smartsocket, SmartSocketServer, SmartSocket, BinaryEncoder };
+module.exports = smartsocket;
 
 // ============================================
 // Auto-start server when run directly
