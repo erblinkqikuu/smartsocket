@@ -1613,6 +1613,7 @@ class SmartSocketServer {
 
                 // Call appropriate handler
                 let handlerResult = null;
+                console.log(`[DEBUG] Calling handler for event: ${event}`);
                 if (socket.handlers && socket.handlers[event]) {
                   handlerResult = socket.handlers[event](data);
                 } else if (server.handlers && server.handlers[event]) {
