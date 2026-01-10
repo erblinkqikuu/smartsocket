@@ -1431,6 +1431,10 @@ class SmartSocketServer {
   }
 
   listen(callback) {
+    // Store reference to prevent namespace loss
+    const namespaceManager = this.namespaceManager;
+    const server = this;
+    
     this.app = uWS.App({})
       .ws('/*', {
         compression: uWS.SHARED_COMPRESSOR,
@@ -1438,20 +1442,20 @@ class SmartSocketServer {
         idleTimeout: 120,
         
         open: (ws) => {
-          const socket = new SmartSocket(ws, this);
-          this.sockets.add(socket);
+          const socket = new SmartSocket(ws, server);
+          server.sockets.add(socket);
           
           console.log(`\n[CONNECTION] ✅ New client connected`);
           console.log(`  └─ Socket ID: ${socket.id}`);
-          console.log(`  └─ Total Connections: ${this.sockets.size}`);
+          console.log(`  └─ Total Connections: ${server.sockets.size}`);
           console.log(`  └─ Timestamp: ${new Date().toISOString()}\n`);
           
-          this._logVibe(`✅ New connection: ${socket.id} (Total: ${this.sockets.size})`);
-          this._handleConnection(ws, socket);
+          server._logVibe(`✅ New connection: ${socket.id} (Total: ${server.sockets.size})`);
+          server._handleConnection(ws, socket);
         },
         
         message: (ws, message, isBinary) => {
-          const socket = Array.from(this.sockets).find(s => s.ws === ws);
+          const socket = Array.from(server.sockets).find(s => s.ws === ws);
           if (socket) {
             try {
               console.log(`\n[MESSAGE] 📨 Received from ${socket.id}`);
@@ -1459,13 +1463,13 @@ class SmartSocketServer {
               console.log(`  └─ Size: ${message.length} bytes`);
               
               // Check rate limit first
-              if (!this.rateLimiter.isAllowed(socket.id)) {
-                this.stats.rateLimitedRequests++;
+              if (!server.rateLimiter.isAllowed(socket.id)) {
+                server.stats.rateLimitedRequests++;
                 console.log(`  └─ ⚠️  Rate limited!\n`);
                 return;
               }
               
-              this.stats.messagesProcessed++;
+              server.stats.messagesProcessed++;
               
               // Decrypt message if encryption is enabled (DISABLED)
               let decrypted = message;
@@ -1501,35 +1505,17 @@ class SmartSocketServer {
 
               // Try cache for certain event types
               if (event === 'state:get' && data && data.roomId) {
-                const cached = this.roomStateCache.getRoomState(data.roomId);
+                const cached = server.roomStateCache.getRoomState(data.roomId);
                 if (cached) {
-                  this.stats.cachedLookups++;
+                  server.stats.cachedLookups++;
                   socket.emit('state:cached', cached);
                   return;
                 }
               }
 
               // Auto-assign socket to namespace on first quiz-related event
-              if (!socket.namespace && data && data.quizCode && this.namespaceManager) {
-                console.log(`[AUTO-ASSIGN] ========= NAMESPACE DEBUG START ==========`);
-                console.log(`[AUTO-ASSIGN] Server instanceId: ${this.instanceId}`);
-                console.log(`[AUTO-ASSIGN] NamespaceManager instanceId: ${this.namespaceManager.instanceId}`);
-                console.log(`[AUTO-ASSIGN] this.namespaceManager exists: ${this.namespaceManager ? 'YES' : 'NO'}`);
-                console.log(`[AUTO-ASSIGN] this.namespaceManager.namespaces exists: ${this.namespaceManager.namespaces ? 'YES' : 'NO'}`);
-                console.log(`[AUTO-ASSIGN] this.namespaceManager.namespaces instanceof Map: ${this.namespaceManager.namespaces instanceof Map ? 'YES' : 'NO'}`);
-                console.log(`[AUTO-ASSIGN] this.namespaceManager.namespaces.size: ${this.namespaceManager.namespaces.size}`);
-                
-                // Log all entries in the Map
-                console.log(`[AUTO-ASSIGN] Iterating through namespaces Map:`);
-                for (const [key, value] of this.namespaceManager.namespaces.entries()) {
-                  console.log(`  - Key: ${key}, Value exists: ${value ? 'YES' : 'NO'}`);
-                }
-                
-                console.log(`[AUTO-ASSIGN] Checking for /quiz namespace...`);
-                const quizNamespace = this.namespaceManager.namespaces.get('/quiz');
-                console.log(`[AUTO-ASSIGN] Namespace found: ${quizNamespace ? 'YES' : 'NO'}`);
-                console.log(`[AUTO-ASSIGN] Available namespaces: ${Array.from(this.namespaceManager.namespaces.keys()).join(', ')}`);
-                console.log(`[AUTO-ASSIGN] ========= NAMESPACE DEBUG END ==========`);
+              if (!socket.namespace && data && data.quizCode && namespaceManager) {
+                const quizNamespace = namespaceManager.namespaces.get('/quiz');
                 
                 if (quizNamespace) {
                   quizNamespace.addSocket(socket);
@@ -1541,39 +1527,36 @@ class SmartSocketServer {
                     quizNamespace.handlers['connection'](socket);
                   }
                 } else {
-                  console.warn(`[AUTO-ASSIGN] WARNING: /quiz namespace not found in namespaceManager`);
+                  console.warn(`[AUTO-ASSIGN] WARNING: /quiz namespace not found`);
                 }
               }
 
               // Check namespace handlers FIRST (highest priority for organized routing)
-              if (socket.namespace) {
-                console.log(`[CHECK-HANDLER] Socket in namespace: ${socket.namespace}`);
-                const namespace = this.namespaceManager.namespaces.get(socket.namespace);
+              if (socket.namespace && namespaceManager) {
+                const namespace = namespaceManager.namespaces.get(socket.namespace);
                 if (namespace && namespace.handlers[event]) {
                   console.log(`[ROUTER] Event '${event}' routed to namespace [${socket.namespace}]`);
                   namespace.handlers[event](socket, data);
                   return;
                 }
-              } else {
-                console.log(`[CHECK-HANDLER] Socket not in any namespace yet`);
               }
 
               // Then check socket-specific handlers
               if (socket.handlers[event]) {
                 socket.handlers[event](data);
-              } else if (this.handlers[event]) {
-                this.handlers[event](socket, data);
+              } else if (server.handlers[event]) {
+                server.handlers[event](socket, data);
               }
               
-              this.stats.messagesOptimized++;
+              server.stats.messagesOptimized++;
             } catch (err) {
-              this._logVibe(`❌ Error parsing message: ${err.message}`);
+              server._logVibe(`❌ Error parsing message: ${err.message}`);
             }
           }
         },
         
         close: (ws, code, message) => {
-          const socket = Array.from(this.sockets).find(s => s.ws === ws);
+          const socket = Array.from(server.sockets).find(s => s.ws === ws);
           if (socket) {
             console.log(`\n[DISCONNECT] ❌ Client disconnected`);
             console.log(`  └─ Socket ID: ${socket.id}`);
@@ -1581,15 +1564,15 @@ class SmartSocketServer {
             console.log(`  └─ Rooms: ${Array.from(socket.rooms).join(', ') || 'none'}`);
             console.log(`  └─ Duration: ${Date.now() - socket.createdAt}ms`);
             console.log(`  └─ Code: ${code}`);
-            console.log(`  └─ Remaining Connections: ${this.sockets.size - 1}`);
+            console.log(`  └─ Remaining Connections: ${server.sockets.size - 1}`);
             console.log(`  └─ Timestamp: ${new Date().toISOString()}\n`);
             
             // Clear encryption key for this connection (DISABLED)
             // encryptionManager.clearSessionKey(socket.id);
             
             // Remove from namespace if assigned
-            if (socket.namespace && this.namespaceManager) {
-              const namespace = this.namespaceManager.namespaces.get(socket.namespace);
+            if (socket.namespace && namespaceManager) {
+              const namespace = namespaceManager.namespaces.get(socket.namespace);
               if (namespace) {
                 namespace.removeSocket(socket);
                 console.log(`[NAMESPACE] Socket removed from namespace [${socket.namespace}]`);
@@ -1601,22 +1584,22 @@ class SmartSocketServer {
               }
             }
             
-            this.sockets.delete(socket);
+            server.sockets.delete(socket);
             socket.rooms.forEach(room => {
-              const roomSockets = this.rooms.get(room);
+              const roomSockets = server.rooms.get(room);
               if (roomSockets) {
                 roomSockets.delete(socket);
                 if (roomSockets.size === 0) {
-                  this.rooms.delete(room);
+                  server.rooms.delete(room);
                 }
               }
             });
             
-            if (this.handlers['disconnect']) {
-              this.handlers['disconnect'](socket);
+            if (server.handlers['disconnect']) {
+              server.handlers['disconnect'](socket);
             }
             
-            this._logVibe(`❌ Disconnected: ${socket.id} (Total: ${this.sockets.size})`);
+            server._logVibe(`❌ Disconnected: ${socket.id} (Total: ${server.sockets.size})`);
           }
         }
       })
