@@ -893,20 +893,36 @@ class SmartSocket {
 
 class SmartSocketServer {
   constructor(port = 8080, options = {}) {
+    // Handle both calling conventions:
+    // new SmartSocket(8080, { enableNamespaces: true })  ✅ Standard
+    // new SmartSocket({ port: 8080, enableNamespaces: true })  ✅ Config object
+    let actualPort = 8080;
+    let actualOptions = options;
+    
+    if (typeof port === 'object' && port !== null && !Array.isArray(port)) {
+      // First arg is a config object
+      actualPort = port.port || 8080;
+      actualOptions = port;
+    } else {
+      // First arg is the port number
+      actualPort = port;
+      actualOptions = options;
+    }
+    
     // Unique instance ID for debugging
     this.instanceId = Math.random().toString(36).substring(7);
     console.log(`[SmartSocketServer] NEW INSTANCE CREATED: ${this.instanceId}`);
     
-    this.port = port;
+    this.port = actualPort;
     this.options = {
       // Feature flags - enabled by default for out-of-box functionality
-      enableMiddleware: options.enableMiddleware !== false,
-      enableNamespaces: options.enableNamespaces !== false,
-      enableAcknowledgments: options.enableAcknowledgments !== false,
-      enableErrorHandling: options.enableErrorHandling !== false,
+      enableMiddleware: actualOptions.enableMiddleware !== false,
+      enableNamespaces: actualOptions.enableNamespaces !== false,
+      enableAcknowledgments: actualOptions.enableAcknowledgments !== false,
+      enableErrorHandling: actualOptions.enableErrorHandling !== false,
       // Other options
-      verbose: options.verbose !== false,
-      ...options
+      verbose: actualOptions.verbose !== false,
+      ...actualOptions
     };
     
     this.sockets = new Set();
@@ -1515,15 +1531,7 @@ class SmartSocketServer {
 
               // Auto-assign socket to namespace on first quiz-related event
               if (!socket.namespace && data && data.quizCode && namespaceManager) {
-                // DEBUG: Check namespaceManager state
-                console.log(`[DEBUG-AUTO-ASSIGN] namespaceManager exists: ${!!namespaceManager}`);
-                console.log(`[DEBUG-AUTO-ASSIGN] namespaceManager.namespaces: ${namespaceManager.namespaces ? 'exists' : 'null'}`);
-                console.log(`[DEBUG-AUTO-ASSIGN] All namespaces: ${Array.from(namespaceManager.namespaces.keys()).join(', ')}`);
-                console.log(`[DEBUG-AUTO-ASSIGN] namespaces Map size: ${namespaceManager.namespaces.size}`);
-                
                 const quizNamespace = namespaceManager.namespaces.get('/quiz');
-                
-                console.log(`[DEBUG-AUTO-ASSIGN] /quiz namespace found: ${!!quizNamespace}`);
                 
                 if (quizNamespace) {
                   quizNamespace.addSocket(socket);
