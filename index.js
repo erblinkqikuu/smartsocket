@@ -820,6 +820,7 @@ class SmartSocket {
             setTimeout(() => {
               try {
                 if (this.ws && typeof this.ws.send === 'function') {
+                  console.log(`  [EMIT-DEBUG] Sending chunk ${i+1}/${finalMessage.length} for event '${event}'`);
                   this.ws.send(finalMessage[i], true);
                 }
               } catch (err) {
@@ -831,7 +832,7 @@ class SmartSocket {
           // Single message
           if (this.ws && typeof this.ws.send === 'function') {
             const isBuffer = finalMessage instanceof ArrayBuffer || finalMessage instanceof Uint8Array || (Buffer && Buffer.isBuffer(finalMessage));
-            this.ws.send(finalMessage, !isBuffer);
+            this.ws.send(finalMessage, isBuffer);
           }
         }
       } catch (err) {
@@ -1596,7 +1597,7 @@ class SmartSocketServer {
                   console.log(`  └─ ⚠️  Middleware blocked message\n`);
                   
                   // Send error acknowledgment if ack was requested
-                  if (ackId && this.server.features.acknowledgments) {
+                  if (ackId && this.features.acknowledgments) {
                     socket.emit('__ack__', { 
                       ackId, 
                       response: { error: 'Middleware blocked message' }
@@ -1618,7 +1619,7 @@ class SmartSocketServer {
                 }
 
                 // Handle acknowledgment
-                if (ackId && this.server.features.acknowledgments) {
+                if (ackId && this.features.acknowledgments) {
                   // Wait for handler to complete if it's async
                   if (handlerResult && typeof handlerResult.then === 'function') {
                     try {
