@@ -188,10 +188,16 @@ export class NamespaceManager {
       name = '/' + name;
     }
     
+    console.log(`[NamespaceManager] Creating/getting namespace: ${name}`);
+    
     if (!this.namespaces.has(name)) {
+      console.log(`[NamespaceManager] Creating new namespace: ${name}`);
       this.namespaces.set(name, new Namespace(name, this.server));
+    } else {
+      console.log(`[NamespaceManager] Namespace ${name} already exists`);
     }
     
+    console.log(`[NamespaceManager] All namespaces: ${Array.from(this.namespaces.keys()).join(', ')}`);
     return this.namespaces.get(name);
   }
 
