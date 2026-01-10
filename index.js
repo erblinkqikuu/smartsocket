@@ -1507,9 +1507,14 @@ class SmartSocketServer {
 
               // Auto-assign socket to namespace on first quiz-related event
               if (!socket.namespace && data && data.quizCode && this.namespaceManager) {
+                console.log(`[AUTO-ASSIGN] this.namespaceManager exists: ${this.namespaceManager ? 'YES' : 'NO'}`);
+                console.log(`[AUTO-ASSIGN] this.namespaceManager.namespaces exists: ${this.namespaceManager.namespaces ? 'YES' : 'NO'}`);
                 console.log(`[AUTO-ASSIGN] Checking for /quiz namespace...`);
                 const quizNamespace = this.namespaceManager.namespaces.get('/quiz');
                 console.log(`[AUTO-ASSIGN] Namespace found: ${quizNamespace ? 'YES' : 'NO'}`);
+                console.log(`[AUTO-ASSIGN] Available namespaces: ${Array.from(this.namespaceManager.namespaces.keys()).join(', ')}`);
+                console.log(`[DEBUG] this.sockets.size: ${this.sockets.size}`);
+                console.log(`[DEBUG] this.namespaceManager constructor: ${this.namespaceManager.constructor.name}`);
                 
                 if (quizNamespace) {
                   quizNamespace.addSocket(socket);
@@ -1522,7 +1527,6 @@ class SmartSocketServer {
                   }
                 } else {
                   console.warn(`[AUTO-ASSIGN] WARNING: /quiz namespace not found in namespaceManager`);
-                  console.log(`[AUTO-ASSIGN] Available namespaces: ${Array.from(this.namespaceManager.namespaces.keys()).join(', ')}`);
                 }
               }
 
