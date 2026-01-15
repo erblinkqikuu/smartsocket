@@ -1,14 +1,16 @@
 // SmartSocket Core - Created by Erblin Kqiku - Optimized for High-Performance Real-Time Games
 // ENHANCED WITH: Object Pool, Message Cache, Rate Limiter, Predictive Compression, Connection Multiplexing, Encryption
 
-const uWS = require('uWebSockets.js');
-const { createDeflate, createInflate } = require('zlib');
-const { promisify } = require('util');
-const { networkInterfaces } = require('os');
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
+import uWS from 'uWebSockets.js';
+import { createDeflate, createInflate } from 'zlib';
+import { promisify } from 'util';
+import { networkInterfaces } from 'os';
+import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { fileURLToPath } from 'url';
+
+// Import optimization modules
 import { ObjectPool, createMessageObject, resetMessageObject } from './object-pool.js';
 import { MessageCache, RoomStateCache, UserSessionCache } from './message-cache.js';
 import { RateLimiter, AdaptiveRateLimiter, TokenBucket } from './rate-limiter.js';
@@ -917,7 +919,8 @@ class SmartSocketServer {
       middleware: options.middleware !== false,    // Enable/disable middleware system
       acknowledgments: options.acknowledgments !== false, // Enable/disable acks
       smartsocketApi: options.smartsocketApi !== false,  // Enable/disable SmartSocket API
-      errorHandlers: options.errorHandlers !== false    // Enable/disable error handlers
+      errorHandlers: options.errorHandlers !== false,    // Enable/disable error handlers
+      universalBroadcast: options.universalBroadcast !== false  // Enable/disable automatic room broadcasting
     };
     
     // Middleware system
@@ -1611,6 +1614,12 @@ class SmartSocketServer {
                 event = middlewareResult.event;
                 data = middlewareResult.data;
 
+                // Universal broadcast: Automatically broadcast events with roomId to the room
+                if (this.features.universalBroadcast && data && data.roomId) {
+                  console.log(`[UNIVERSAL BROADCAST] Broadcasting '${event}' to room [${data.roomId}]`);
+                  this.to(data.roomId).emit(event, data);
+                }
+
                 // Call appropriate handler
                 let handlerResult = null;
                 console.log(`[DEBUG] Calling handler for event: ${event}`);
@@ -1793,7 +1802,7 @@ function smartsocket(port = 8080, options = {}) {
   return new SmartSocketServer(port, options);
 }
 
-module.exports = smartsocket;
+export default smartsocket;
 
 // ============================================
 // Auto-start server when run directly

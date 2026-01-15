@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Production WebSocket server with DEFLATE compression, auto-reconnect, room broadcasting, and real-time metrics. 20-30x faster than Socket.IO.",
   "main": "index.js",
+  "type": "module",
   "author": "Erblin Kqiku",
   "license": "MIT",
   "keywords": [
