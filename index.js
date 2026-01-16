@@ -769,7 +769,7 @@ class SmartSocket {
     this.rooms = new Set();
     this.handlers = {};
     this.data = {};
-    this.streamId = server.multiplexer.createStream({ priority: 5 });
+    this.streamId = server && server.multiplexer ? server.multiplexer.createStream({ priority: 5 }) : null;
   }
 
   _generateId() {
@@ -895,7 +895,9 @@ class SmartSocket {
 
   disconnect() {
     // Clean up multiplexer stream
-    this.server.multiplexer.closeStream(this.streamId);
+    if (this.server && this.server.multiplexer && this.streamId) {
+      this.server.multiplexer.closeStream(this.streamId);
+    }
     this.ws.end();
   }
 }
