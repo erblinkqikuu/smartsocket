@@ -486,30 +486,37 @@ class BinaryEncoder {
       }
     } catch (err) {
       console.error(`[SmartSocket] Encode error: ${err.message}, falling back to chunked encoding`);
-      // Extreme fallback: just send the data without event wrapper
+      // Extreme fallback: handle different event types
       if (data && typeof data === 'object') {
         try {
-          // Try to encode just the critical fields
-          const minimalPayload = { 
-            event, 
-            data: {
+          let minimalData;
+          
+          // Handle different event types with their critical fields
+          if (event === 'quiz-started') {
+            minimalData = {
+              quizCode: data.quizCode,
+              questions: Array.isArray(data.questions) ? data.questions.slice(0, 5) : [], // Limit to first 5 questions
+              projectMode: data.projectMode
+            };
+          } else if (event === 'player-joined') {
+            minimalData = {
+              quizCode: data.quizCode,
+              playerId: data.playerId,
+              playerName: data.playerName
+            };
+          } else {
+            // Generic fallback for other events
+            minimalData = {
               id: data.id,
               userId: data.userId,
               username: data.username,
               text: data.text,
               roomId: data.roomId,
-              timestamp: data.timestamp,
-              imageName: data.imageName,
-              imageType: data.imageType,
-              videoName: data.videoName,
-              videoType: data.videoType,
-              voiceType: data.voiceType,
-              // Include base64 separately if it exists
-              ...(data.imageBase64 && { imageBase64: data.imageBase64 }),
-              ...(data.videoBase64 && { videoBase64: data.videoBase64 }),
-              ...(data.voiceBase64 && { voiceBase64: data.voiceBase64 })
-            }
-          };
+              timestamp: data.timestamp
+            };
+          }
+          
+          const minimalPayload = { event, data: minimalData };
           const minimalStr = JSON.stringify(minimalPayload);
           const minimalBytes = new TextEncoder().encode(minimalStr);
           
