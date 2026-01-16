@@ -485,8 +485,7 @@ class BinaryEncoder {
         return this._encodeChunked(jsonStr, event);
       }
     } catch (err) {
-      console.error(`[SmartSocket] Encode error: ${err.message}, falling back to chunked encoding`);
-      // Extreme fallback: handle different event types
+      // Try fallback encoding without logging the error yet
       if (data && typeof data === 'object') {
         try {
           let minimalData;
@@ -495,7 +494,7 @@ class BinaryEncoder {
           if (event === 'quiz-started') {
             minimalData = {
               quizCode: data.quizCode,
-              questions: Array.isArray(data.questions) ? data.questions.slice(0, 5) : [], // Limit to first 5 questions
+              questions: Array.isArray(data.questions) ? data.questions.slice(0, 10) : [], // Allow up to 10 questions
               projectMode: data.projectMode
             };
           } else if (event === 'player-joined') {
@@ -526,11 +525,15 @@ class BinaryEncoder {
             return this._encodeChunked(minimalStr, event);
           }
         } catch (err2) {
+          // Only log error if both main encoding and fallback fail
+          console.error(`[SmartSocket] Encode error: ${err.message}`);
           console.error(`[SmartSocket] Fallback encode failed: ${err2.message}`);
           throw err2;
         }
+      } else {
+        console.error(`[SmartSocket] Encode error: ${err.message}`);
+        throw err;
       }
-      throw err;
     }
   }
   
