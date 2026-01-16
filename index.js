@@ -1614,12 +1614,6 @@ class SmartSocketServer {
                 event = middlewareResult.event;
                 data = middlewareResult.data;
 
-                // Universal broadcast: Automatically broadcast events with roomId to the room
-                if (this.features.universalBroadcast && data && data.roomId) {
-                  console.log(`[UNIVERSAL BROADCAST] Broadcasting '${event}' to room [${data.roomId}]`);
-                  this.to(data.roomId).emit(event, data);
-                }
-
                 // Call appropriate handler
                 let handlerResult = null;
                 console.log(`[DEBUG] Calling handler for event: ${event}`);
@@ -1629,6 +1623,12 @@ class SmartSocketServer {
                 } else if (server.handlers && server.handlers[event]) {
                   console.log(`[DEBUG] Handler found for ${event}, calling it`);
                   handlerResult = server.handlers[event](socket, data);
+                }
+
+                // Universal broadcast: Automatically broadcast events with roomId to the room
+                if (this.features.universalBroadcast && data && data.roomId) {
+                  console.log(`[UNIVERSAL BROADCAST] Broadcasting '${event}' to room [${data.roomId}]`);
+                  this.to(data.roomId).emit(event, data);
                 }
 
                 // Handle acknowledgment
@@ -1807,7 +1807,7 @@ export default smartsocket;
 // ============================================
 // Auto-start server when run directly
 // ============================================
-if (import.meta.url.endsWith(process.argv[1]) || import.meta.url.includes('index.js')) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   const port = process.env.PORT || 8080;
   const server = new SmartSocketServer(port, { verbose: true });
   
