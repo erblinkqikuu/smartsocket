@@ -909,6 +909,7 @@ class SmartSocketServer {
     this.sockets = new Set();
     this.rooms = new Map();
     this.roomStates = new Map();
+    this.players = new Map(); // Store player info
     this.handlers = {};
     this.app = null;
     this.heartbeatInterval = null;
